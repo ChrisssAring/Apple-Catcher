@@ -1,6 +1,8 @@
 import pygame
 import random
 import numpy
+import math
+import shelve
 
 # Global constants
 speed_apple_y = 5
@@ -11,7 +13,7 @@ game_over = False
 BLACK = (60, 60, 60)
 WHITE = (255, 255, 255)
 BROWN = (160, 82, 45)
-BROWN_LIGHTER = (205, 133, 63)
+BROWN_LIGHTER = (205,133,63)
 BLUE = (135, 206, 250)
 RED = (240, 20, 60)
 RED_DARKER = (200, 20, 60)
@@ -24,6 +26,9 @@ SCREEN_HEIGHT = 1080
 WIDTH_LEFT = SCREEN_WIDTH/3
 WIDTH_RIGHT = SCREEN_WIDTH/(3/2)
 HEIGHT_LOWER = SCREEN_HEIGHT/(3/2)
+
+cloud = pygame.image.load('cloud.png')
+cloud = pygame.transform.scale(cloud, (300, 150))
 
 pygame.init()
 
@@ -77,8 +82,8 @@ class Apples(pygame.sprite.Sprite):
         height = 50
 
         # Pick apple type with weighted randomness.
-        choices = ['r', 'g']
-        weights = [0.75, 0.25]
+        choices = ['r', 'g', 's']
+        weights = [0.70, 0.25, 0.05]
         appletype = numpy.random.choice(choices, p=weights)
         self.appletype = appletype
 
@@ -87,6 +92,9 @@ class Apples(pygame.sprite.Sprite):
 
         elif appletype == 'g':
             color = (60, 179, 113)
+
+        elif appletype == 's':
+            color = (148, 0, 211)
 
         self.image = pygame.Surface([width, height])
         self.image.fill(color)
@@ -122,6 +130,35 @@ def button(msg,x,y,w,h,init_color,hover_color,action=None):
     textRect.center = ( (x+(w/2)), (y+(h/2)) )
     screen.blit(textSurf, textRect)
 
+""" Intro Screen with text and buttons. """
+def intro():
+    intro = True
+
+    while intro:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+
+        screen.fill(BLUE)
+        largeText = pygame.font.Font('freesansbold.ttf', 115)
+        color = WHITE
+        TextSurf, TextRect = text("Apple Catcher", largeText, color)
+        TextRect.center = ((SCREEN_WIDTH/2), (SCREEN_HEIGHT/3))
+        screen.blit(TextSurf, TextRect)
+
+        button("Start", WIDTH_LEFT - 100, HEIGHT_LOWER - 50, 200, 100, GREEN_DARKER, GREEN, main)
+        button("Quit", WIDTH_RIGHT - 100, HEIGHT_LOWER - 50, 200, 100, RED_DARKER, RED, quit)
+
+        pygame.display.update()
+        clock.tick(15)
+
+""" Handles the quit button. """
+def quit():
+    pygame.quit()
 
 """ Main Method.
 Handles almost all
@@ -142,11 +179,13 @@ def main():
     apple_list = pygame.sprite.Group()
 
     # Timers and frame rate counts
+    frame_count_special = 0
     frame_rate = 60
     timer = 0
     timer_spawn = 0
 
     # Variables that handle fairness and spawning logic
+    special = False
     score = 0
     lives = 5
     chance = 1.5
@@ -202,6 +241,7 @@ def main():
             button("Play Again?", WIDTH_LEFT - 100, HEIGHT_LOWER - 50, 200, 100, GREEN_DARKER, GREEN, main)
             button("Quit", WIDTH_RIGHT - 100, HEIGHT_LOWER - 50, 200, 100, RED_DARKER, RED, quit)
         else:
+            total_seconds_special = frame_count_special // frame_rate
 
             # Handles the spawning rates of apples.
             # The chance that an apple can spawn each frame.
@@ -244,6 +284,8 @@ def main():
                     score += 1
                 elif apple.appletype == 'g':
                     lives -= 1
+                elif apple.appletype == 's':
+                    special = True
 
             # Remove apples that go off the screen
             for apple in apple_list:
@@ -253,6 +295,26 @@ def main():
                     if apple.appletype == 'r':
                         lives -= 1
 
+            # Handles special apples
+            if special is True:
+                for apple in apple_list:
+                    # Make every apple fly to the player for free points after special apple is caught!
+                    dx = (player.rect.x - apple.rect.x)/math.sqrt((player.rect.x - apple.rect.x) ** 2 + (player.rect.y - apple.rect.y) ** 2)
+                    dy = (player.rect.y - apple.rect.y)/math.sqrt((player.rect.x - apple.rect.x) ** 2 + (player.rect.y - apple.rect.y) ** 2)
+                    apple.rect.y += dy * 50
+                    apple.rect.x += dx * 75
+
+                    # Make every apple look red and be of type 'r' so that the special apple is better.
+                    apple.appletype = 'r'
+                    color = (220, 20, 60)
+                    apple.image.fill(color)
+
+                    # Special apple lasts for 10 seconds. Reset.
+                    if total_seconds_special >= 10:
+                        frame_count_special = 0
+                        special = False
+
+                frame_count_special += 1
 
             # Handles difficulty increase over time every 10 seconds.
             if (timer / frame_rate) % 10 == 0:
@@ -294,6 +356,7 @@ def main():
                 game_over = True
 
             screen.fill(BLUE)
+            pygame.draw.rect(screen, GREEN_DARKER, (0, SCREEN_HEIGHT - 15, SCREEN_WIDTH, 15))
 
             # Make sure player cant move off the screen.
             if player.rect.right >= 1920:
@@ -306,6 +369,20 @@ def main():
             active_sprite_list.draw(screen)
 
             pygame.draw.rect(screen, BROWN_LIGHTER, (0, 0, SCREEN_WIDTH, 100))
+
+            # Randomize cloud placement (Kinda)
+            for i in range(3):
+                screen.blit(cloud, (i * 800 + 10, 120 + i*20))
+            for i in range(3):
+                screen.blit(cloud, (i * 400 + 300, 180 - i*20))
+
+            bonus_text = pygame.font.SysFont("comicsansms", 56)
+            if total_seconds_special == 0:
+                TextSurf, TextRect = text("Bonus: None", bonus_text, WHITE)
+            else:
+                TextSurf, TextRect = text("Bonus: "+str(10 - total_seconds_special), lives_text, WHITE)
+            TextRect.center = ((WIDTH_RIGHT + 200), (50))
+            screen.blit(TextSurf, TextRect)
 
             lives_text = pygame.font.SysFont("comicsansms", 56)
             TextSurf, TextRect = text("Lives: "+str(lives), lives_text, WHITE)
@@ -329,4 +406,5 @@ def main():
 
 
 if __name__ == "__main__":
+    intro()
     main()
